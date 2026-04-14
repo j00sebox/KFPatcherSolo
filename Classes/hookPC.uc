@@ -161,7 +161,7 @@ state PlayerWaiting {
       SetTimer(0, false);
     }
     else if (!bRequestedSteamData && SteamStatsAndAchievements == none) {
-      if (Level.NetMode == NM_Standalone) {
+      if (Level.NetMode == NM_Standalone || Level.NetMode == NM_ListenServer) {
         SteamStatsAndAchievements = Spawn(SteamStatsAndAchievementsClass, self);
         if (SteamStatsAndAchievements != none) {
           // set PCOwner directly instead of calling Initialize() which triggers the security check

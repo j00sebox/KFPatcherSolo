@@ -41,10 +41,13 @@ event PreBeginPlay() {
     RestoreAllFunctions();
 
     // apply replacements fresh
-    if (Level.NetMode == NM_Standalone) {
-        ReplaceFunctionArraySafe(List);
-    } else {
+    // Standalone and ListenServer spawn the mutator via ?Mutator= during InitGame,
+    // so replacing KFGameType/Engine/xGame bytecodes mid-call stack crashes.
+    // Only dedicated servers loading via ServerActor are safe for the full replacement.
+    if (Level.NetMode == NM_DedicatedServer) {
         ReplaceFunctionArray(List);
+    } else {
+        ReplaceFunctionArraySafe(List);
     }
 }
 
