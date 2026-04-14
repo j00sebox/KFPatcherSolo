@@ -22,3 +22,6 @@ var() config bool bAllowZedTime;
 // all traders
 var() config bool bAllTradersOpen;
 var() config string bAllTradersMessage;
+
+// startup greeting — one is picked at random per player on first pawn spawn
+var() config array<string> StartupMessages;

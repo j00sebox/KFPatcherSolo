@@ -29,7 +29,14 @@ struct sFunctionBackup {
 };
 var private array<sFunctionBackup> ProcessedFunctions;
 
-var private transient bool bStartupMessageSent;
+var private transient array<PlayerController> GreetedPCs;
+
+struct sPendingGreeting {
+    var PlayerController pc;
+    var string msg;
+    var int repeatsLeft;
+};
+var private transient array<sPendingGreeting> PendingGreetings;
 
 //=============================================================================
 event PreBeginPlay() {
@@ -150,26 +157,84 @@ private final function string GetClassName(string input) {
     return input;
 }
 
-// one-shot "mod loaded" message so the player can confirm the mutator is active
+// one-shot "mod loaded" message per player so they know the mutator is active
 function ModifyPlayer(Pawn Other) {
     local PlayerController pc;
+    local int i;
 
     super.ModifyPlayer(Other);
 
-    if (bStartupMessageSent || Other == none)
+    if (Other == none)
         return;
 
     pc = PlayerController(Other.Controller);
     if (pc == none)
         return;
 
-    class'Utility'.static.SendMessage(pc, "^g[KFPatcherSolo] ^wloaded successfully!", false);
-    bStartupMessageSent = true;
+    for (i = 0; i < GreetedPCs.length; i++) {
+        if (GreetedPCs[i] == pc)
+            return;
+    }
+
+    SendStartupMessage(pc);
+    GreetedPCs[GreetedPCs.length] = pc;
+}
+
+// Send the greeting now, then queue it to repeat a couple more times so it
+// stays visible in chat longer than the ~6s hardcoded HUD fade.
+private final function SendStartupMessage(PlayerController pc) {
+    local int count, idx;
+    local sPendingGreeting entry;
+
+    count = class'Settings'.default.StartupMessages.length;
+    if (count == 0)
+        return;
+
+    idx = Rand(count);
+    entry.msg = class'Settings'.default.StartupMessages[idx];
+    entry.pc = pc;
+    entry.repeatsLeft = 2;
+
+    class'Utility'.static.SendMessage(pc, entry.msg, false);
+    PendingGreetings[PendingGreetings.length] = entry;
+
+    SetTimer(3.0, true);
+}
+
+function Timer() {
+    local int i;
+
+    for (i = PendingGreetings.length - 1; i >= 0; i--) {
+        if (PendingGreetings[i].pc == none) {
+            PendingGreetings.Remove(i, 1);
+            continue;
+        }
+        class'Utility'.static.SendMessage(PendingGreetings[i].pc, PendingGreetings[i].msg, false);
+        PendingGreetings[i].repeatsLeft--;
+        if (PendingGreetings[i].repeatsLeft <= 0)
+            PendingGreetings.Remove(i, 1);
+    }
+
+    if (PendingGreetings.length == 0)
+        SetTimer(0, false);
 }
 
 // standalone disconnect: Logout -> NotifyLogout fires before level teardown
 function NotifyLogout(Controller Exiting) {
+    local int i;
+
     log("> NotifyLogout fired for" @ Exiting);
+
+    for (i = GreetedPCs.length - 1; i >= 0; i--) {
+        if (GreetedPCs[i] == none || GreetedPCs[i] == Exiting)
+            GreetedPCs.Remove(i, 1);
+    }
+
+    for (i = PendingGreetings.length - 1; i >= 0; i--) {
+        if (PendingGreetings[i].pc == none || PendingGreetings[i].pc == Exiting)
+            PendingGreetings.Remove(i, 1);
+    }
+
     if (Level.NetMode == NM_Standalone) {
         RestoreAllFunctions();
     }
