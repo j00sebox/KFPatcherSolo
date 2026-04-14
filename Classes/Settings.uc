@@ -2,9 +2,10 @@
  * Author       : Shtoyan
  * Home Repo    : https://github.com/InsultingPros/KFPatcher
  * License      : https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Modified by  : j00sebox, 2026 (KFPatcherSolo fork)
 */
 class Settings extends object
-    config(KFPatcherSettings);
+    config(KFPatcherSoloSettings);
 
 
 var() config bool bBuyEverywhere;

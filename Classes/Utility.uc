@@ -2,6 +2,7 @@
  * Author       : Shtoyan
  * Home Repo    : https://github.com/InsultingPros/KFPatcher
  * License      : https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Modified by  : j00sebox, 2026 (KFPatcherSolo fork)
 */
 class Utility extends object;
 
@@ -76,7 +77,7 @@ final static function SendMessage(PlayerController pc, coerce string msg, bool b
     if (!bAlreadyColored)
         msg = ParseTags(msg);
 
-    pc.teamMessage(none, msg, 'KFPatcher');
+    pc.teamMessage(none, msg, 'KFPatcherSolo');
 }
 
 

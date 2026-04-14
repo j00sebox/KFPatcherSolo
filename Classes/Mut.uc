@@ -2,9 +2,10 @@
  * Author       : Shtoyan
  * Home Repo    : https://github.com/InsultingPros/KFPatcher
  * License      : https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Modified by  : j00sebox, 2026 (KFPatcherSolo fork)
 */
 class Mut extends Mutator
-    config(KFPatcherFuncs);
+    config(KFPatcherSoloFuncs);
 
 
 //=============================================================================
@@ -20,23 +21,60 @@ var private UFunctionCast FunctionCaster;
 // only allowed players can use mutate commands
 var private array<string> AllowedSteamID;
 
-// used in level cleanup
-var private transient bool bCleanedUp;
+// bytecode backups — stored in class defaults so they persist across level transitions
+// (cleanup hooks like Destroyed/ServerTraveling never fire when backing out to menu)
 struct sFunctionBackup {
     var private uFunction originalFunction;
     var private array<byte> originalScript;
 };
-var private transient array<sFunctionBackup> ProcessedFunctions;
+var private array<sFunctionBackup> ProcessedFunctions;
+
+var private transient bool bStartupMessageSent;
 
 //=============================================================================
 event PreBeginPlay() {
     super.PreBeginPlay();
 
-    // TMP!!! hack fix for tosscash!
     class'hookPawn'.default.cashtimer = 0.0f;
 
-    // replacing vanilla functions with ours
-    ReplaceFunctionArray(List);
+    // restore any lingering bytecodes from a previous game before re-applying
+    RestoreAllFunctions();
+
+    // apply replacements fresh
+    if (Level.NetMode == NM_Standalone) {
+        ReplaceFunctionArraySafe(List);
+    } else {
+        ReplaceFunctionArray(List);
+    }
+}
+
+// function replacement, skipping functions unsafe in standalone mode
+// InitGame is on the call stack when mutators are spawned via ?Mutator=
+// KFGameType state functions can also cause issues when bytecodes persist
+private final function ReplaceFunctionArraySafe(array<FunctionRecord> functionList) {
+    local int idx;
+
+    for (idx = 0; idx < functionList.length; idx++) {
+        if (InStr(functionList[idx].Replace, "KFGameType.") != -1) {
+            log("> Skipping " $ functionList[idx].Replace $ " (unsafe in standalone mode)");
+            continue;
+        }
+        if (InStr(functionList[idx].Replace, "GameRules.") != -1) {
+            log("> Skipping " $ functionList[idx].Replace $ " (unsafe in standalone mode)");
+            continue;
+        }
+        // Engine/xGame base classes persist into the entry level after disconnect
+        // and no cleanup hook fires in standalone — skip to prevent freeze
+        if (InStr(functionList[idx].Replace, "Engine.") != -1) {
+            log("> Skipping " $ functionList[idx].Replace $ " (unsafe in standalone mode)");
+            continue;
+        }
+        if (InStr(functionList[idx].Replace, "xGame.") != -1) {
+            log("> Skipping " $ functionList[idx].Replace $ " (unsafe in standalone mode)");
+            continue;
+        }
+        ReplaceFunction(functionList[idx].Replace, functionList[idx].With);
+    }
 }
 
 // function replacement
@@ -52,11 +90,7 @@ private final function ReplaceFunction(string Replace, string With) {
     local uFunction A, B;
     local sFunctionBackup functionBackup;
 
-    // This removes the need to declare variables for every new class we make
-    // vanilla classes or 3rd party mutator classes
     DynamicLoadObject(GetClassName(Replace), class'class', true);
-    // classes with our edited functions
-    // `caller.class.outer.name` returns caller's package name
     DynamicLoadObject(self.class.outer.name $ "." $ Left(With, InStr(With,".")), class'class', true);
 
     A = default.FunctionCaster.Cast(function(FindObject(Replace, class'function')));
@@ -71,22 +105,33 @@ private final function ReplaceFunction(string Replace, string With) {
         return;
     }
 
-    // create a backup
+    // store backup in class defaults so it persists across level transitions
     functionBackup.originalFunction = A;
     functionBackup.originalScript = A.Script;
-    ProcessedFunctions[ProcessedFunctions.length] = functionBackup;
+    default.ProcessedFunctions[default.ProcessedFunctions.length] = functionBackup;
 
-    // switch functions
     A.Script = B.Script;
-
     log("> Processing " $ Replace $ "    ---->    " $ With);
+}
+
+// restore all replaced functions to their original vanilla bytecodes
+private final function RestoreAllFunctions() {
+    local int i;
+
+    if (default.ProcessedFunctions.length == 0)
+        return;
+
+    for (i = 0; i < default.ProcessedFunctions.length; i++) {
+        default.ProcessedFunctions[i].originalFunction.Script = default.ProcessedFunctions[i].originalScript;
+    }
+    log("> Restored " $ default.ProcessedFunctions.length $ " functions to vanilla state");
+    default.ProcessedFunctions.length = 0;
 }
 
 // get the "package + dot + class" string for DynamicLoadObject()
 private final function string GetClassName(string input) {
     local array<string> parts;
 
-    // create an array
     split(input, ".", parts);
 
     // state functions
@@ -102,35 +147,48 @@ private final function string GetClassName(string input) {
     return input;
 }
 
-// cleanup
+// one-shot "mod loaded" message so the player can confirm the mutator is active
+function ModifyPlayer(Pawn Other) {
+    local PlayerController pc;
+
+    super.ModifyPlayer(Other);
+
+    if (bStartupMessageSent || Other == none)
+        return;
+
+    pc = PlayerController(Other.Controller);
+    if (pc == none)
+        return;
+
+    class'Utility'.static.SendMessage(pc, "^g[KFPatcherSolo] ^wloaded successfully!", false);
+    bStartupMessageSent = true;
+}
+
+// standalone disconnect: Logout -> NotifyLogout fires before level teardown
+function NotifyLogout(Controller Exiting) {
+    log("> NotifyLogout fired for" @ Exiting);
+    if (Level.NetMode == NM_Standalone) {
+        RestoreAllFunctions();
+    }
+    super.NotifyLogout(Exiting);
+}
+
+// dedicated server map changes
 function ServerTraveling(string URL, bool bItems) {
-    SafeCleanup();
+    RestoreAllFunctions();
     super.ServerTraveling(URL, bItems);
 }
 
 function Destroyed() {
-    SafeCleanup();
+    RestoreAllFunctions();
     super.Destroyed();
-}
-
-private final function SafeCleanup() {
-    local int i;
-
-    if (bCleanedUp || ProcessedFunctions.length == 0) {
-        return;
-    }
-    for (i = 0; i < ProcessedFunctions.length; i++) {
-        ProcessedFunctions[i].originalFunction.Script = ProcessedFunctions[i].originalScript;
-    }
-    bCleanedUp = true;
-    warn("All functions reverted to original state!");
 }
 
 //=============================================================================
 defaultproperties {
     GroupName="KF-DarkMagic"
-    FriendlyName="KF1 Patcher"
-    Description="Directly replace TWI's bullshit functions for easy fixes (or trolls)."
+    FriendlyName="KF1 Patcher Solo"
+    Description="Custom patches for KF1 with solo mode support."
 
     begin object class=UFunctionCast name=SubFunctionCaster
     end object

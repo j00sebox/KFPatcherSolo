@@ -2,6 +2,7 @@
  * Author       : Shtoyan
  * Home Repo    : https://github.com/InsultingPros/KFPatcher
  * License      : https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Modified by  : j00sebox, 2026 (KFPatcherSolo fork)
 */
 class hookGT extends KFGameType
     CacheExempt;  // do NOT include me in UCL and do NOT be discoverable in menus;

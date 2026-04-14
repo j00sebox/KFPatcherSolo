@@ -2,6 +2,7 @@
  * Author       : Shtoyan
  * Home Repo    : https://github.com/InsultingPros/KFPatcher
  * License      : https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Modified by  : j00sebox, 2026 (KFPatcherSolo fork)
 */
 class hookPC extends KFPlayerController_Story;
 
@@ -149,6 +150,44 @@ function bool IsInInventory(class<Pickup> PickupToCheck, bool bCheckForEquivalen
 {
   return false;
 }
+
+// https://github.com/InsultingPros/KillingFloor/blob/main/KFMod/Classes/KFPlayerController.uc#L1215
+// Skip Initialize() in standalone to bypass native security check that blocks stat persistence.
+// Mimics the client-side path used on dedicated servers (PostNetBeginPlay sets PCOwner directly).
+// KFMod.KFPlayerController.PlayerWaiting
+state PlayerWaiting {
+  simulated function Timer() {
+    if (!bPendingLobbyDisplay || bDemoOwner || (PlayerReplicationInfo != none && PlayerReplicationInfo.bReadyToPlay)) {
+      SetTimer(0, false);
+    }
+    else if (!bRequestedSteamData && SteamStatsAndAchievements == none) {
+      if (Level.NetMode == NM_Standalone) {
+        SteamStatsAndAchievements = Spawn(SteamStatsAndAchievementsClass, self);
+        if (SteamStatsAndAchievements != none) {
+          // set PCOwner directly instead of calling Initialize() which triggers the security check
+          SteamStatsAndAchievements.PCOwner = self;
+        }
+      }
+      else {
+        bRequestedSteamData = true;
+      }
+    }
+    else if (SteamStatsAndAchievements != none && !SteamStatsAndAchievements.bInitialized && ForceShowLobby < 10) {
+      if (!bRequestedSteamData) {
+        ForceShowLobby = 0;
+        SteamStatsAndAchievements.GetStatsAndAchievements();
+        bRequestedSteamData = true;
+      }
+      ForceShowLobby++;
+    }
+    else if (Player != none && GUIController(Player.GUIController) != none && !GUIController(Player.GUIController).bActive && GameReplicationInfo != none) {
+      UpdateHintManagement(bShowHints);
+      ShowLobbyMenu();
+      SetTimer(0, false);
+    }
+  }
+}
+
 
 // Prevent clients IP address leak.
 //
